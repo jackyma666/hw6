@@ -1,6 +1,6 @@
 ---
 title: "Homework 6"
-author: "[Insert your name here]{style='background-color: yellow;'}"
+author: "[Yuchen Ma]{style='background-color: yellow;'}"
 toc: true
 title-block-banner: true
 title-block-style: default
@@ -68,10 +68,14 @@ Read the data file as a tibble in R. Preprocess the data such that:
 2. all column names to lower case for consistency
 3. Any observations with missing values are dropped
 
-```R
+```{R}
 path <- "data/spending.csv"
 
-df <- ... # Insert your code here
+df <- read.csv(path, stringsAsFactors = FALSE)
+df <- df %>%
+  mutate_if(is.character, as.factor)
+names(df) <- tolower(names(df))
+df <- na.omit(df)
 ```
 
 ---
@@ -80,10 +84,14 @@ df <- ... # Insert your code here
 
 Visualize the correlation between the variables using the `corrplot()` function. What do you observe? What does this mean for the model?
 
-```R
-df_x  %>% ... # Insert your code here
+```{R}
+library(corrplot)
+df_x <- df
+cor_matrix <- cor(df_x)
+corrplot(cor_matrix, method = "circle")
 ```
 
+The correlation plot indicates many variables with little to no correlation to income, suggesting potential dimensionality reduction or feature selection to improve model simplicity and performance.
 ---
 
 ###### 1.3 (5 points)
@@ -91,19 +99,37 @@ df_x  %>% ... # Insert your code here
 Run a linear regression model to predict the `income` variable using the remaining predictors. Interpret the coefficients and summarize your results. 
 
 
-```R
-... # Insert your code here
-```
+```{R}
 
+model <- lm(income ~ ., data = df_x)
+summary_model <- summary(model)
+print(summary_model)
+coefficients <- summary_model$coefficients
+
+```
+The model has very high R-squared values, indicating that spending patterns strongly predict income. High coefficients for "jewelry" and "laptops" suggest significant positive associations with income, while "travel" has a notable negative association. The precision of the model should be critically evaluated, as overfitting may be a concern given the near-perfect R-squared values.
 ---
 
 ###### 1.3 (5 points)
 
 Diagnose the model using the `vif()` function. What do you observe? What does this mean for the model?
 
-```R
-... # Insert your code here
+```{R}
+library(car)
+
+vif_values <- vif(model)
+print(vif_values)
+high_vif <- vif_values[vif_values > 5] 
+print(high_vif)
 ```
+
+The VIFs are exceedingly high, indicating severe multicollinearity. This compromises the model's interpretability and suggests a need for dimensionality reduction or regularization to improve model stability.
+
+
+
+
+
+
 
 ---
 
@@ -111,9 +137,12 @@ Diagnose the model using the `vif()` function. What do you observe? What does th
 
 Perform PCA using the `princomp` function in R. Print the summary of the PCA object.
 
-```R
-pca <- ... # Insert your code here
-... # Insert your code here
+```{R}
+library(stats)
+predictors <- df_x %>% select_if(is.numeric) %>% select(-income)
+pca <- princomp(predictors, cor = TRUE)
+summary(pca)
+
 ```
 
 ---
@@ -122,24 +151,53 @@ pca <- ... # Insert your code here
 
 Make a screeplot of the proportion of variance explained by each principal component. How many principal components would you choose to keep? Why?
 
-```R
-... # Insert your code here
+```{R}
+std_dev <- pca$sdev
+prop_variance <- std_dev^2 / sum(std_dev^2)
+plot(prop_variance, xlab = "Principal Component", ylab = "Proportion of Variance Explained", type = "b",
+     main = "Scree Plot")
+abline(h = 0.05, col = "red", lty = 2) 
 ```
-
+I’d choose to keep the first 3-4 principal components as they appear to capture the most variance before the curve flattens significantly, indicating diminishing returns on explained variance thereafter.
 
 ###### 1.6 (5 points)
 
 By setting any factor loadings below $0.2$ to $0$, summarize the factor loadings for the principal components that you chose to keep. 
 
-```R
-clean_loadings <- ... # Insert your code here
+```{R}
+loadings <- pca$loadings[, 1:4]
+clean_loadings <- loadings
+clean_loadings[abs(clean_loadings) < 0.2] <- 0
+print(clean_loadings)
+
 ```
+
+The factor loadings reveal which variables most influence each principal component. Notably, "jewelry" strongly influences Comp. 4, and "electronics" impact Comp. 1, with other variables contributing variably across components.
+
+
+
+
+
 
 
 Visualize the factor loadings. 
 
-```R
-... # Insert your code here
+```{R}
+library(ggplot2)
+loadings_long <- as.data.frame(clean_loadings) %>%
+  mutate(Feature = row.names(.)) %>%
+  gather(Key, Loading, -Feature)
+
+loadings_long <- loadings_long %>%
+  filter(Loading != 0)
+
+ggplot(loadings_long, aes(x = Key, y = Feature, fill = Loading)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0) +
+  theme_minimal() +
+  labs(x = "Principal Component", y = "Variable", title = "Factor Loadings Heatmap") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
 ```
 
 ---
@@ -150,35 +208,50 @@ Based on the factor loadings, what do you think the principal components represe
 
 Provide an interpreation for each principal component you chose to keep.
 
+
+The principal components likely represent underlying spending patterns. For instance, Comp. 1 may reflect tech-savvy spending, Comp. 2 could indicate essentials and home-related expenses, Comp. 3 might be leisure and luxury-oriented, while Comp. 4 seems associated with entertainment and digital consumption. Each component captures distinct facets of consumer behavior.
 ---
 
 ###### 1.8 (10 points)
 
 Create a new data frame with the original response variable `income` and the principal components you chose to keep. Call this data frame `df_pca`.
 
-```R
-... # Insert your code here
+```{R}
+scores <- as.data.frame(pca$scores[, 1:4]) 
+df_pca <- cbind(df_x$income, scores) 
+colnames(df_pca)[1] <- "income" #
 ```
 
 Fit a regression model to predict the `income` variable using the principal components you chose to keep. Interpret the coefficients and summarize your results. 
 
-```R
-... # Insert your code here
+```{R}
+model_pca <- lm(income ~ ., data = df_pca)
+summary_model_pca <- summary(model_pca)
+print(summary_model_pca)
 ```
 
 Compare the results of the regression model in 1.3 and 1.9. What do you observe? What does this mean for the model?
 
-```R
-... # Insert your code here
-
+```{R}
+summary_model <- summary(model)
+print(summary_model)
+print(summary_model_pca)
 ```
 ---
+The PCA-based model shows high significance for all components, similar to the full model. It's simplified, yet almost equally effective, indicating PCA components captured key variance, possibly enhancing model interpretability and reducing overfitting risk.
+
+
+
+
+
+
+
 
 ###### 1.10 (10 points)
 
 Based on your interpretation of the principal components from Question 1.7, provide an interpretation of the regression model in Question 1.9.
 
-
+The regression model suggests that distinct spending habits—tech-savviness, essentials, leisure luxury, and entertainment preferences—are significantly associated with income, reflecting diverse economic impacts on income levels.
 
 ---
 
